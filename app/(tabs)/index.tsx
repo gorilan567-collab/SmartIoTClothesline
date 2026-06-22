@@ -30,7 +30,7 @@ export default function HomeScreen() {
   const [isRaining, setIsRaining] = useState(false);
 
   // Ganti IP ini sesuai dengan IP yang muncul di ipconfig (IPv4 Address)
-  const API_URL = 'http://192.168.1.24:3000/api';
+  const API_URL = 'https://smartiotclothesline.onrender.com/api';
 
   // Notification tracking state to avoid spam
   const [hasNotifiedLowTemp, setHasNotifiedLowTemp] = useState(false);

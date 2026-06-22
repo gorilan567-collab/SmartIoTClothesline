@@ -5,7 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
 
-const API_URL = 'http://192.168.1.24:3000/api';
+const API_URL = 'https://smartiotclothesline.onrender.com/api';
 const SCREEN_WIDTH = Dimensions.get('window').width;
 
 type RainData = {
