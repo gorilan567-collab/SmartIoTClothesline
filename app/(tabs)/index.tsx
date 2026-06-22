@@ -4,18 +4,17 @@ import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { useRouter } from 'expo-router';
-import * as Notifications from 'expo-notifications';
+// import * as Notifications from 'expo-notifications';
 import { HistoryContext } from '../context/HistoryContext';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldShowAlert: true,
-    shouldPlaySound: true,
-    shouldSetBadge: false,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+// Helper to get notifications module dynamically to prevent Expo Go SDK 53/54 crash on static import
+const getNotificationsModule = () => {
+  try {
+    return require('expo-notifications');
+  } catch (e) {
+    return null;
+  }
+};
 
 export default function HomeScreen() {
   const router = useRouter();
@@ -25,7 +24,13 @@ export default function HomeScreen() {
   const [lightIntensity, setLightIntensity] = useState(85);
   const [isClotheslineExtended, setIsClotheslineExtended] = useState(false);
   const [isFanOn, setIsFanOn] = useState(false);
-  const [isAutoModeOn, setIsAutoModeOn] = useState(false);
+  const [isAutoModeOn, setIsAutoModeOn] = useState(true);
+  const [rainValue, setRainValue] = useState(4095);
+  const [rainPercent, setRainPercent] = useState(0);
+  const [isRaining, setIsRaining] = useState(false);
+
+  // Ganti IP ini sesuai dengan IP yang muncul di ipconfig (IPv4 Address)
+  const API_URL = 'http://192.168.1.24:3000/api';
 
   // Notification tracking state to avoid spam
   const [hasNotifiedLowTemp, setHasNotifiedLowTemp] = useState(false);
@@ -66,19 +71,39 @@ export default function HomeScreen() {
   };
 
   const sendNotification = async (title: string, body: string) => {
-    await Notifications.scheduleNotificationAsync({
-      content: {
-        title,
-        body,
-        sound: true,
-      },
-      trigger: null, // Send immediately
-    });
+    const Notifications = getNotificationsModule();
+    if (!Notifications) return;
+
+    try {
+      await Notifications.scheduleNotificationAsync({
+        content: {
+          title,
+          body,
+          sound: true,
+        },
+        trigger: null, // Send immediately
+      });
+    } catch (error) {
+      console.log("Error scheduling local notification:", error);
+    }
   };
 
   useEffect(() => {
-    const registerForPushNotificationsAsync = async () => {
-      let token;
+    const Notifications = getNotificationsModule();
+    if (!Notifications) return;
+
+    // Set notification handler on mount
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldShowAlert: true,
+        shouldPlaySound: true,
+        shouldSetBadge: false,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+
+    const registerForLocalNotificationsAsync = async () => {
       if (Platform.OS === 'android') {
         await Notifications.setNotificationChannelAsync('default', {
           name: 'default',
@@ -95,30 +120,45 @@ export default function HomeScreen() {
         finalStatus = status;
       }
       if (finalStatus !== 'granted') {
-        // failed to get permission
         return;
       }
     };
 
-    registerForPushNotificationsAsync();
+    registerForLocalNotificationsAsync();
   }, []);
 
-  // Simulate real-time updates
+  // Fetch real data from API
   useEffect(() => {
-    let currentTemp = 28;
-    let currentLight = 85;
+    const fetchStatus = async () => {
+      try {
+        const response = await fetch(`${API_URL}/status`);
+        const data = await response.json();
+        
+        setTemperature(Math.round(data.suhu));
+        
+        // Convert LDR value to percentage (assuming 0 = dark, 4095 = bright for ESP32)
+        // Or just map it roughly
+        let lightPercent = 100 - (data.nilaiLDR / 40.95); 
+        setLightIntensity(Math.round(Math.max(0, Math.min(100, lightPercent))));
+        
+        setIsClotheslineExtended(data.jemuranKeluar);
+        setIsFanOn(data.kipasMenyala);
+        setIsAutoModeOn(data.autoMode);
 
-    const interval = setInterval(() => {
-      // Allow temp to fluctuate more so we can see the full animation range
-      const tempChange = Math.floor(Math.random() * 4) * (Math.random() > 0.5 ? 1 : -1);
-      currentTemp = Math.min(Math.max(currentTemp + tempChange, 20), 45);
+        // Update rain states
+        setRainValue(data.nilaiHujan);
+        setIsRaining(data.hujan);
+        const maxVal = data.nilaiHujan > 1024 ? 4095 : 1023;
+        const percent = Math.round(Math.max(0, Math.min(100, 100 - (data.nilaiHujan / (maxVal / 100)))));
+        setRainPercent(percent);
 
-      const lightChange = Math.floor(Math.random() * 5) * (Math.random() > 0.5 ? 1 : -1);
-      currentLight = Math.min(Math.max(currentLight + lightChange, 0), 100);
+      } catch (error) {
+        console.log("Error fetching API:", error);
+      }
+    };
 
-      setTemperature(currentTemp);
-      setLightIntensity(currentLight);
-    }, 3000);
+    // Fetch every 2 seconds
+    const interval = setInterval(fetchStatus, 2000);
     return () => clearInterval(interval);
   }, []);
 
@@ -139,15 +179,30 @@ export default function HomeScreen() {
     }
   }, [temperature, lightIntensity]);
 
+  const updateControl = async (command: any) => {
+    try {
+      await fetch(`${API_URL}/control`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(command)
+      });
+    } catch (error) {
+      console.log("Error sending control:", error);
+    }
+  };
+
   const handleRetract = () => {
     if (isClotheslineExtended) {
       setIsClotheslineExtended(false);
+      updateControl({ jemuranKeluar: false });
+      
       addHistoryEvent('Jemuran Tertutup');
       sendNotification("Jemuran Tertutup", "Katup telah ditutup jemuran tidak dalam proses pengeringan.");
 
       // Auto turn on blower when retracted
       if (!isFanOn) {
         setIsFanOn(true);
+        updateControl({ kipasMenyala: true });
         sendNotification("Blower Menyala Otomatis", "Blower menyala karena jemuran tertutup.");
       }
     }
@@ -156,6 +211,8 @@ export default function HomeScreen() {
   const handleExtend = () => {
     if (!isClotheslineExtended) {
       setIsClotheslineExtended(true);
+      updateControl({ jemuranKeluar: true });
+      
       addHistoryEvent('Jemuran Terbuka');
       sendNotification("Jemuran Terbuka", "Katup telah dibuka jemuran dalam proses pengeringan.");
     }
@@ -215,6 +272,36 @@ export default function HomeScreen() {
             <Text style={styles.monitorLabel}>Intensitas Cahaya</Text>
           </View>
         </View>
+
+        {/* Rain Card */}
+        <TouchableOpacity
+          style={styles.rainCard}
+          onPress={() => router.push('/rain' as any)}
+          activeOpacity={0.8}
+        >
+          <LinearGradient colors={['#ffffff', '#f8fafc']} style={styles.cardGradient} />
+          <View style={styles.rainCardLeft}>
+            <View style={[styles.rainIconCircle, { backgroundColor: isRaining ? '#e0f2fe' : '#fef3c7' }]}>
+              <MaterialCommunityIcons 
+                name={isRaining ? "weather-rainy" : "weather-sunny"} 
+                size={28} 
+                color={isRaining ? "#0ea5e9" : "#eab308"} 
+              />
+            </View>
+            <View style={styles.rainTextContainer}>
+              <Text style={styles.rainCardTitle}>Status Hujan</Text>
+              <Text style={styles.rainCardSubtitle}>
+                {isRaining ? 'Sedang Hujan' : 'Tidak Hujan'}
+              </Text>
+            </View>
+          </View>
+          <View style={styles.rainCardRight}>
+            <Text style={[styles.rainPercentValue, { color: isRaining ? '#0ea5e9' : '#eab308' }]}>
+              {rainPercent}%
+            </Text>
+            <Ionicons name="chevron-forward" size={20} color="#cbd5e1" />
+          </View>
+        </TouchableOpacity>
 
         {/* Control Section */}
         <View style={styles.section}>
@@ -283,6 +370,7 @@ export default function HomeScreen() {
                 ios_backgroundColor="#cbd5e1"
                 onValueChange={(val) => {
                   setIsFanOn(val);
+                  updateControl({ kipasMenyala: val });
                   if (val) {
                     sendNotification("Blower Menyala", "Blower telah diaktifkan.");
                   } else {
@@ -297,7 +385,11 @@ export default function HomeScreen() {
             {/* Auto Mode Toggle Button */}
             <TouchableOpacity
               style={[styles.historyButton, isAutoModeOn && styles.autoButtonActive]}
-              onPress={() => setIsAutoModeOn(!isAutoModeOn)}
+              onPress={() => {
+                const newMode = !isAutoModeOn;
+                setIsAutoModeOn(newMode);
+                updateControl({ autoMode: newMode });
+              }}
             >
               <MaterialCommunityIcons name="brightness-auto" size={28} color={isAutoModeOn ? "#ffffff" : "#05695c"} />
               <Text style={[styles.historyButtonText, isAutoModeOn && { color: "#ffffff" }]}>Auto</Text>
@@ -325,6 +417,16 @@ export default function HomeScreen() {
             <View style={styles.summaryItem}>
               <Text style={styles.summaryItemLabel}>Intensitas Cahaya</Text>
               <Text style={styles.summaryItemValue}>{lightIntensity}%</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryItemLabel}>Intensitas Hujan</Text>
+              <Text style={styles.summaryItemValue}>{rainPercent}%</Text>
+            </View>
+            <View style={styles.summaryItem}>
+              <Text style={styles.summaryItemLabel}>Status Hujan</Text>
+              <Text style={[styles.summaryItemValue, { color: isRaining ? '#ef4444' : '#10b981' }]}>
+                {isRaining ? 'HUJAN' : 'AMAN'}
+              </Text>
             </View>
             <View style={styles.summaryItem}>
               <Text style={styles.summaryItemLabel}>Posisi Jemuran</Text>
@@ -580,5 +682,57 @@ const styles = StyleSheet.create({
   },
   autoButtonActive: {
     backgroundColor: '#05695c',
+  },
+  rainCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#ffffff',
+    borderRadius: 24,
+    padding: 18,
+    shadowColor: '#0ea5e9',
+    shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
+    marginBottom: 24,
+    borderWidth: 1.5,
+    borderColor: '#f1f5f9',
+    overflow: 'hidden',
+  },
+  rainCardLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  rainIconCircle: {
+    width: 46,
+    height: 46,
+    borderRadius: 23,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rainTextContainer: {
+    justifyContent: 'center',
+  },
+  rainCardTitle: {
+    fontSize: 15,
+    fontFamily: 'Montserrat_700Bold',
+    color: '#0f172a',
+  },
+  rainCardSubtitle: {
+    fontSize: 13,
+    color: '#64748b',
+    fontFamily: 'Montserrat_500Medium',
+    marginTop: 2,
+  },
+  rainCardRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  rainPercentValue: {
+    fontSize: 22,
+    fontFamily: 'Montserrat_800ExtraBold',
   }
 });

@@ -19,7 +19,8 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.ags1122.SmartIoTClothesline"
     },
     "web": {
       "output": "static",
@@ -45,6 +46,14 @@
         {
           "icon": "./assets/images/icon.png",
           "color": "#05695c"
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ],

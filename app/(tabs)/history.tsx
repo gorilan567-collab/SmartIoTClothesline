@@ -3,9 +3,11 @@ import { StyleSheet, View, Text, TouchableOpacity, ScrollView, TextInput } from 
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { SafeAreaView } from 'react-native-safe-area-context';
+import { useRouter } from 'expo-router';
 import { HistoryContext } from '../context/HistoryContext';
 
 export default function HistoryScreen() {
+    const router = useRouter();
     const historyContext = useContext(HistoryContext);
     const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
     const [searchQuery, setSearchQuery] = useState('');
@@ -42,9 +44,8 @@ export default function HistoryScreen() {
             <ScrollView contentContainerStyle={styles.scrollContent}>
                 {/* Header */}
                 <View style={styles.headerShape}>
-                    <TouchableOpacity onPress={() => {/* Navigation handled by tab bar or router.back() if needed */ }} style={styles.backButton}>
-                        {/* If we strictly want it to look like a sub-page, we could add a back button, but it's a tab screen. We can leave it simple. */}
-                        <MaterialCommunityIcons name="history" size={32} color="#05695c" />
+                    <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+                        <Ionicons name="arrow-back" size={24} color="#05695c" />
                     </TouchableOpacity>
                     <View style={styles.headerTextContainer}>
                         <Text style={styles.headerTitle}>RIWAYAT</Text>

@@ -4,10 +4,37 @@ import * as SplashScreen from 'expo-splash-screen';
 import { useEffect } from 'react';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
+import { LogBox } from 'react-native';
 import 'react-native-reanimated';
 
 import { useColorScheme } from '@/hooks/use-color-scheme';
 import { HistoryProvider } from './context/HistoryContext';
+
+// Silences the SDK 53/54 expo-notifications warning in Expo Go
+LogBox.ignoreLogs(['expo-notifications: Android Push notifications']);
+if (__DEV__) {
+  const originalWarn = console.warn;
+  console.warn = (...args) => {
+    if (
+      typeof args[0] === 'string' &&
+      args[0].includes('expo-notifications: Android Push notifications')
+    ) {
+      return;
+    }
+    originalWarn(...args);
+  };
+
+  const originalError = console.error;
+  console.error = (...args) => {
+    if (
+      typeof args[0] === 'string' &&
+      args[0].includes('expo-notifications: Android Push notifications')
+    ) {
+      return;
+    }
+    originalError(...args);
+  };
+}
 
 export const unstable_settings = {
   anchor: '(tabs)',
